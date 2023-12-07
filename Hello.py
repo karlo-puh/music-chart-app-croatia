@@ -90,7 +90,7 @@ if "apple" not in st.session_state:
         properties = row.find_all('td')
 
         chart_position = int(properties[0].text.strip())
-        last_week = int(properties[1].text.strip().replace('=', '0').replace('NEW', '0'))
+        last_week = properties[1].text.strip()
         track_name = properties[2].text.strip()
 
         data.append([track_name, chart_position, last_week])
