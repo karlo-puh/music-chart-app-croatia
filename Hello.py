@@ -90,7 +90,7 @@ if "apple" not in st.session_state:
         properties = row.find_all('td')
 
         chart_position = int(properties[0].text.strip())
-        last_week = properties[1].text.strip()
+        last_week = properties[1].text.strip().replace('=', '0')
         track_name = properties[2].text.strip()
 
         data.append([track_name, chart_position, last_week])
@@ -115,15 +115,19 @@ if "youtube" not in st.session_state:
         properties = row.find_all('td')
 
         chart_position = int(properties[0].text.strip())
-        last_week = properties[1].text.strip().replace('=', '0').replace('NEW', '-1000')
+        last_week = properties[1].text.strip().replace('=', '0')
         track_name = properties[2].text.strip()
-
-        last_week = -2 if last_week == '-1000' else int(last_week) if int(last_week) >= 0 else -1
 
         data.append([track_name, chart_position, last_week])
 
     # Create dataframe
     st.session_state['youtube'] = pd.DataFrame(data[0:25], columns=['track_name', 'chart_position', 'last_week'])
+
+    pattern = re.compile(r'\bfea\w*', re.IGNORECASE)
+    st.session_state['youtube']['track_name'] = st.session_state['youtube']['track_name'].str.replace(r'\([^)]*\)', '').replace(pattern, '')
+
+# Continue with the rest of your code...
+
 
 
 # Check for deezer chart in the session state. If not in session state create the dataframe
