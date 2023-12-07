@@ -8,8 +8,9 @@ from streamlit.hello.utils import show_code
 
 
 st.set_page_config(page_title="Billboard Charts", page_icon="📊")
-st.markdown("[Billboard Charts](https://www.billboard.com/charts/croatia-songs-hotw/)")
-st.sidebar.header("BillBoard")
+
+st.markdown("# Billboard Charts")
+st.sidebar.header("Billboard Charts")
 st.write(
     """Data scraped from Weekly Croatian [Billboard Charts](https://www.billboard.com/charts/croatia-songs-hotw/)"""
 )
