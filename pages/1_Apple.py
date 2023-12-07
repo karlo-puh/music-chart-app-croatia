@@ -28,7 +28,7 @@ st.markdown(
 # Main content
 st.markdown("# Apple Charts")
 st.sidebar.header("Apple Charts")
-st.write("""Data scraped from Weekly Croatian [Apple Chart](https://kworb.net/charts/apple_s/hr.html)""")
+st.write("""Data scraped from Croatian [Apple Chart](https://kworb.net/charts/apple_s/hr.html)""")
 
 # DataFrame customization
 st.dataframe(

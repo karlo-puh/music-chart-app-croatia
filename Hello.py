@@ -1,17 +1,3 @@
-# Copyright (c) Streamlit Inc. (2018-2022) Snowflake Inc. (2022)
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 import streamlit as st
 from streamlit.logger import get_logger
 from bs4 import BeautifulSoup
@@ -25,10 +11,25 @@ from fuzzywuzzy import fuzz
 LOGGER = get_logger(__name__)
 
 
+# Set page configuration
 st.set_page_config(
-    page_title="Overall",
-    page_icon="👋",
+    page_title="Chars Overall",
+    page_icon="📊",
+    layout="wide",  # You can adjust the layout
 )
+
+# Add background color
+st.markdown(
+    """
+    <style>
+        body {
+            background-color: #f4f4f4;
+        }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 
 st.write("# Welcome to Streamlit! 👋")
 
@@ -144,7 +145,7 @@ if "deezer" not in st.session_state:
         properties = row.find_all('td')
 
         chart_position = int(properties[0].text.strip())
-        last_week = properties[1].text.strip()
+        last_week = properties[1].text.strip().replace('=', '0')
         track_name = properties[2].text.strip()
 
         data.append([track_name, chart_position, last_week])
@@ -195,3 +196,111 @@ if "extrafm" not in st.session_state:
 
     # Create dataframe
     st.session_state['extrafm'] = pd.DataFrame(sorted_songs[0:50], columns=['track_name', 'times_played'])
+
+
+
+
+
+
+st.session_state['billboard']['source'] = 'billboard'
+st.session_state['deezer']['source'] = 'deezer'
+st.session_state['apple']['source'] = 'apple'
+st.session_state['youtube']['source'] = 'youtube'
+st.session_state['extrafm']['source'] = 'extrafm'
+
+one_dataframe = pd.concat([st.session_state['billboard'][['track_name','chart_position','source']], 
+                           st.session_state['deezer'][['track_name','chart_position','source']], 
+                           st.session_state['apple'][['track_name','chart_position','source']],
+                           st.session_state['youtube'][['track_name','chart_position','source']]],
+                           ignore_index=True)
+
+# Function for fuzzy matching
+def fuzzy_match(song1, song2):
+    return fuzz.token_set_ratio(song1.lower(), song2.lower())
+
+#Cleaning song titles
+pattern = re.compile(r'\bfea\w*', re.IGNORECASE)
+one_dataframe['track_name'] = one_dataframe['track_name'].str.replace(r'\([^)]*\)', '', regex=True).replace(pattern, '', regex=True)
+
+one_dataframe['normalized_chart_position'] = abs(((one_dataframe['chart_position'] - 1) / 24) -1)
+
+# Fuzzy Matching and Avoiding Duplicates
+unique_tracks = []
+matching_threshold = 90  # Adjust this threshold based on your data and requirements
+
+aggregated_scores = {}
+matched_songs = {}
+
+# Iterate over each row in the DataFrame
+for index, row in one_dataframe.iterrows():
+    track = row['track_name']
+    matched = False
+
+    for unique_track in aggregated_scores.keys():
+        if fuzzy_match(track, unique_track) > matching_threshold:
+            # Match found, aggregate the score and add to the list of matched songs
+            aggregated_scores[unique_track] += row['normalized_chart_position']
+            matched_songs[unique_track].append(track)
+            matched = True
+            break
+
+    if not matched:
+        # If no match found, create a new entry in the dictionaries
+        aggregated_scores[track] = row['normalized_chart_position']
+        matched_songs[track] = [track]
+
+# Convert the dictionaries to a new DataFrame
+result_df = pd.DataFrame({
+    'unique_track': list(aggregated_scores.keys()),
+    'chart_position_sum': list(aggregated_scores.values()),
+    'matched_songs': list(matched_songs.values())
+})
+
+result_df = result_df.sort_values(by='chart_position_sum', ascending=False).reset_index(drop=True)
+
+for result_index, result_row in result_df.iterrows():
+    for index, row in one_dataframe.iterrows():
+        if row['track_name'] in result_row['matched_songs']:
+            result_df.at[result_index, row['source']] = row['chart_position']
+
+
+result_df.fillna(np.inf, inplace = True)
+
+
+st.dataframe(result_df[['unique_track','chart_position_sum','billboard','deezer','apple','youtube','matched_songs']],
+    width = 1500,
+    height= 600,
+    hide_index=False,
+    column_config={
+        "unique_track": st.column_config.Column(
+            "Track Name",
+            width = "medium"
+        ),
+        "chart_position_sum": st.column_config.Column(
+            "Calculated score",
+            width = "small"
+        ),
+        "matched_songs": st.column_config.Column(
+            "Matched Song Names",
+            width = "medium"
+        ),
+        "billboard": st.column_config.Column(
+            "Billboard",
+            width = "small"
+        ),
+        "deezer": st.column_config.Column(
+            "Deezer",
+            width = "small"
+        ),
+        "apple": st.column_config.Column(
+            "Apple",
+            width = "small"
+        ),
+        "youtube": st.column_config.Column(
+            "Youtube",
+            width = "small"
+        )
+    }
+)
+
+

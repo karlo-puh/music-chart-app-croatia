@@ -28,7 +28,7 @@ st.markdown(
 # Main content
 st.markdown("# YouTube Charts")
 st.sidebar.header("YouTube Charts")
-st.write("""Data scraped from Weekly Croatian [YouTube Chart](https://kworb.net/youtube/trending/hr.html)""")
+st.write("""Data scraped from Croatian [YouTube Chart](https://kworb.net/youtube/trending/hr.html)""")
 
 # DataFrame customization
 st.dataframe(
