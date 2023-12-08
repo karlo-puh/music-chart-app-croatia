@@ -37,6 +37,24 @@ st.write("# Welcome to Streamlit! 👋")
 def clean_track_name(track_name):
     return re.sub(r'\s{2,}', ' - ', track_name)
 
+def convert_balkan_characters(input_string):
+    replace_dict = {
+        'ć': 'c',
+        'č': 'c',
+        'ž': 'z',
+        'š': 's',
+        'đ': 'd',
+    }
+    
+    result_string = input_string
+    for old, new in replace_dict.items():
+        result_string = result_string.replace(old, new)
+    return result_string
+
+# Function for fuzzy matching
+def fuzzy_match(song1, song2):
+    return fuzz.token_set_ratio(convert_balkan_characters(song1.lower()), convert_balkan_characters(song2.lower()))
+
 # Check for billboard chart in the session state. If not in session state create the dataframe
 if "billboard" not in st.session_state:
     data = []
@@ -169,33 +187,42 @@ if "extrafm" not in st.session_state:
         soup = BeautifulSoup(response.text, 'html.parser')
 
         table = soup.find('table', class_='tablelist-schedule')
-        table = soup.find('tbody')
-        table = table.find_all('tr')
 
-        for row in table:
-            properties = row.find_all('td')
-            song_and_artist = properties[1].text.strip()
+        #Check if there is actual data before extracting
+    
+        if table:
+            table = table.find('tbody')
+            table = table.find_all('tr')
 
-            time = properties[0].text.strip()
-            time = time.replace('Uživo', '1000')
-            time = int(time.replace(':', ''))
+            for row in table:
+                properties = row.find_all('td')
+                song_and_artist = properties[1].text.strip()
 
-            # Adjust for time zone difference of the scraper location
-            time += 600
+                time = properties[0].text.strip()
+                time = time.replace('Uživo', '1000')
+                time = int(time.replace(':', ''))
 
-            # Drop songs from 12:00 AM to 6:00 AM or SW (probably commercials)
-            if 0 <= time <= 600 or 'SW - ' in song_and_artist:
-                continue
+                # Adjust for time zone difference of the scraper location
+                time += 600
 
-            if song_and_artist in song_dict.keys():
-                song_dict[song_and_artist] += 1
-            else:
-                song_dict[song_and_artist] = 1
+                # Drop songs from 12:00 AM to 6:00 AM or SW (probably commercials)
+                if 0 <= time <= 600 or 'SW - ' in song_and_artist:
+                    continue
+
+                
+                pattern = re.compile(r'\bfea\w*', re.IGNORECASE)
+                song_and_artist = re.sub(r'\([^)]*\)', '', song_and_artist)
+                song_and_artist = re.sub(pattern, '', song_and_artist).strip()
+
+                if song_and_artist in song_dict.keys():
+                    song_dict[song_and_artist] += 1
+                else:
+                    song_dict[song_and_artist] = 1
 
     sorted_songs = sorted(song_dict.items(), key=lambda x: x[1], reverse=True)
 
     # Create dataframe
-    st.session_state['extrafm'] = pd.DataFrame(sorted_songs[0:50], columns=['track_name', 'times_played'])
+    st.session_state['extrafm'] = pd.DataFrame(sorted_songs, columns=['track_name', 'times_played'])
 
 
 
@@ -206,7 +233,6 @@ st.session_state['billboard']['source'] = 'billboard'
 st.session_state['deezer']['source'] = 'deezer'
 st.session_state['apple']['source'] = 'apple'
 st.session_state['youtube']['source'] = 'youtube'
-st.session_state['extrafm']['source'] = 'extrafm'
 
 one_dataframe = pd.concat([st.session_state['billboard'][['track_name','chart_position','source']], 
                            st.session_state['deezer'][['track_name','chart_position','source']], 
@@ -214,14 +240,10 @@ one_dataframe = pd.concat([st.session_state['billboard'][['track_name','chart_po
                            st.session_state['youtube'][['track_name','chart_position','source']]],
                            ignore_index=True)
 
-# Function for fuzzy matching
-def fuzzy_match(song1, song2):
-    return fuzz.token_set_ratio(song1.lower(), song2.lower())
 
 #Cleaning song titles
 pattern = re.compile(r'\bfea\w*', re.IGNORECASE)
 one_dataframe['track_name'] = one_dataframe['track_name'].str.replace(r'\([^)]*\)', '', regex=True).replace(pattern, '', regex=True)
-
 one_dataframe['normalized_chart_position'] = abs(((one_dataframe['chart_position'] - 1) / 24) -1)
 
 # Fuzzy Matching and Avoiding Duplicates
@@ -257,48 +279,58 @@ result_df = pd.DataFrame({
 })
 
 result_df = result_df.sort_values(by='chart_position_sum', ascending=False).reset_index(drop=True)
+result_df['extrafm'] = np.nan
 
 for result_index, result_row in result_df.iterrows():
     for index, row in one_dataframe.iterrows():
         if row['track_name'] in result_row['matched_songs']:
             result_df.at[result_index, row['source']] = row['chart_position']
 
+            #Add 0.2 score for billboard position
+            if row['source'] == 'billboard':
+                result_df.at[result_index, 'chart_position_sum'] += 0.2
 
+    for index, row in st.session_state['extrafm'].iterrows():
+        if fuzzy_match(row['track_name'], result_row['unique_track']) > 90:
+            result_df.at[result_index, 'extrafm'] = row['times_played']
+            result_df.at[result_index, 'chart_position_sum'] += ((row['times_played'])/(st.session_state['extrafm']['times_played'].max()) / 2)
+
+
+result_df['extrafm'].fillna(0, inplace = True)
 result_df.fillna(np.inf, inplace = True)
 
 
-st.dataframe(result_df[['unique_track','chart_position_sum','billboard','deezer','apple','youtube','matched_songs']],
+st.dataframe(result_df[['unique_track','chart_position_sum','billboard','deezer','apple','youtube', 'extrafm','matched_songs']].sort_values(by = 'chart_position_sum', ascending = False).reset_index(drop = True),
     width = 1500,
     height= 600,
     hide_index=False,
     column_config={
         "unique_track": st.column_config.Column(
-            "Track Name",
-            width = "medium"
+            "Track Name"
         ),
         "chart_position_sum": st.column_config.Column(
-            "Calculated score",
-            width = "small"
+            "Calculated score"
         ),
         "matched_songs": st.column_config.Column(
-            "Matched Song Names",
-            width = "medium"
+            "Matched Song Names"
         ),
         "billboard": st.column_config.Column(
-            "Billboard",
-            width = "small"
+            "Billboard"
         ),
         "deezer": st.column_config.Column(
-            "Deezer",
-            width = "small"
+            "Deezer"
         ),
         "apple": st.column_config.Column(
-            "Apple",
-            width = "small"
+            "Apple"
         ),
         "youtube": st.column_config.Column(
-            "Youtube",
-            width = "small"
+            "Youtube"
+        ),
+        "extrafm": st.column_config.ProgressColumn(
+            "ExtraFM Times Played",
+            format="%d",
+            min_value=0,
+            max_value=int(st.session_state['extrafm'].times_played.max())
         )
     }
 )
